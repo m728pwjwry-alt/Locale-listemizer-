@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arkansas Quartz Locality GPS Lookup</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 700px; margin: 0 auto; padding: 16px; background: #fafafa; color: #222; }
+  h1 { font-size: 20px; }
+  p.sub { color: #555; font-size: 14px; }
+  input[type=file] { display: block; margin: 16px 0; }
+  button { width: 100%; padding: 14px; font-size: 16px; border-radius: 8px; border: none; background: #2563eb; color: white; margin-bottom: 8px; }
+  button:disabled { background: #b0bec5; }
+  #log { background: #111; color: #0f0; font-family: monospace; font-size: 12px; padding: 10px; border-radius: 6px; height: 300px; overflow-y: auto; white-space: pre-wrap; margin-top: 12px; }
+  #downloadBtn { background: #16a34a; display: none; }
+  #fallback { display: none; margin-top: 12px; }
+  #fallback textarea { width: 100%; height: 150px; font-family: monospace; font-size: 11px; }
+  .summary { font-weight: 600; margin-top: 8px; }
+</style>
+</head>
+<body>
+
+<h1>Arkansas Quartz Locality GPS Lookup</h1>
+<p class="sub">Upload the locality CSV, tap run, and it looks each site up against USGS's live MRDS database right here in the browser &mdash; no app install needed.</p>
+
+<input type="file" id="fileInput" accept=".csv">
+<button id="runBtn" disabled>Run lookup</button>
+<button id="downloadBtn">Download result CSV</button>
+
+<div id="log">Waiting for a CSV file...</div>
+<div class="summary" id="summary"></div>
+
+<div id="fallback">
+  <p class="sub">If the download button didn't work, select all the text below and copy it into Notes or a new file:</p>
+  <textarea id="fallbackText" readonly onclick="this.select()"></textarea>
+</div>
+
+<script>
+const MRDS_URL = "https://services.arcgis.com/v01gqwM5QqNysAAi/ArcGIS/rest/services/Mineral_Resources_Data_System_MRDS_Compact_Version/FeatureServer/0/query";
+
+// Bounding box around the western Arkansas quartz crystal belt (Mena to
+// Little Rock, Yell/Perry county down to Pike/Hot Spring/Grant county).
+// Keeps a search for e.g. "Silver" from matching a silver mine in Nevada.
+const BBOX = { xmin: -94.6, ymin: 34.0, xmax: -92.1, ymax: 35.2 };
+
+const STRIP_PATTERNS = [
+  /\bmine\b/gi, /\bmines\b/gi, /\barea\b/gi, /\bprospect\b/gi, /\bdeposit\b/gi,
+  /\bcrystal\b/gi, /\bquartz\b/gi, /\bcompany\b/gi, /\bco\.?\b/gi, /\bno\.?\s*\d+\b/gi
+];
+
+const TOO_GENERIC_ALONE = new Set([
+  "hill", "point", "mountain", "creek", "spring", "springs", "mine",
+  "ridge", "knob", "gap", "cove", "valley", "lake"
+]);
+
+function cleanName(rawName) {
+  let name = rawName.includes("\u2014") ? rawName.split(/\u2014|-/).pop().trim() : rawName;
+  name = name.replace(/\([^)]*\)/g, "").trim();
+
+  const candidates = [name];
+  let stripped = name;
+  STRIP_PATTERNS.forEach(p => { stripped = stripped.replace(p, ""); });
+  stripped = stripped.replace(/\s+/g, " ").trim().replace(/^[\s.,-]+|[\s.,-]+$/g, "");
+
+  if (stripped && stripped.toLowerCase() !== name.toLowerCase() && !TOO_GENERIC_ALONE.has(stripped.toLowerCase())) {
+    candidates.push(stripped);
+  }
+  return candidates.filter(Boolean);
+}
+
+async function queryMRDS(name) {
+  const escaped = name.replace(/'/g, "''");
+  const params = new URLSearchParams({
+    where: "SITE_NAME LIKE '%" + escaped + "%'",
+    geometry: BBOX.xmin + "," + BBOX.ymin + "," + BBOX.xmax + "," + BBOX.ymax,
+    geometryType: "esriGeometryEnvelope",
+    inSR: "4326",
+    spatialRel: "esriSpatialRelIntersects",
+    outFields: "DEP_ID,SITE_NAME,DEV_STAT",
+    returnGeometry: "true",
+    f: "json"
+  });
+  const resp = await fetch(MRDS_URL + "?" + params.toString());
+  const data = await resp.json();
+  if (data.error) throw new Error(JSON.stringify(data.error));
+  return (data.features || [])
+    .filter(f => f.geometry && "x" in f.geometry)
+    .map(f => ({
+      depId: f.attributes.DEP_ID,
+      siteName: f.attributes.SITE_NAME,
+      lon: f.geometry.x,
+      lat: f.geometry.y
+    }));
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+let parsedRows = null;
+let originalFields = null;
+
+const fileInput = document.getElementById("fileInput");
+const runBtn = document.getElementById("runBtn");
+const downloadBtn = document.getElementById("downloadBtn");
+const logEl = document.getElementById("log");
+const summaryEl = document.getElementById("summary");
+const fallbackEl = document.getElementById("fallback");
+const fallbackText = document.getElementById("fallbackText");
+
+function log(line) {
+  logEl.textContent += line + "\n";
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+fileInput.addEventListener("change", () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: true,
+    complete: (results) => {
+      parsedRows = results.data;
+      originalFields = results.meta.fields;
+      logEl.textContent = "Loaded " + parsedRows.length + " rows. Tap \"Run lookup\" to start.\n";
+      runBtn.disabled = false;
+    },
+    error: (err) => { logEl.textContent = "Could not read that CSV: " + err.message; }
+  });
+});
+
+runBtn.addEventListener("click", async () => {
+  if (!parsedRows) return;
+  runBtn.disabled = true;
+  fileInput.disabled = true;
+  logEl.textContent = "";
+  summaryEl.textContent = "";
+
+  const newFields = ["MRDS_Longitude", "MRDS_Latitude", "MRDS_DepID", "MRDS_MatchedName", "MRDS_MatchCount"];
+
+  for (let i = 0; i < parsedRows.length; i++) {
+    const row = parsedRows[i];
+    const name = (row.Name || "").trim();
+    if (!name) continue;
+
+    let matches = [];
+    let tried = [];
+    for (const candidate of cleanName(name)) {
+      tried.push(candidate);
+      try {
+        matches = await queryMRDS(candidate);
+      } catch (e) {
+        log("[" + (i+1) + "/" + parsedRows.length + "] " + name + ": ERROR - " + e.message);
+        matches = [];
+      }
+      if (matches.length) break;
+      await sleep(300);
+    }
+
+    if (matches.length) {
+      const m = matches[0];
+      row.MRDS_Longitude = m.lon.toFixed(6);
+      row.MRDS_Latitude = m.lat.toFixed(6);
+      row.MRDS_DepID = m.depId;
+      row.MRDS_MatchedName = m.siteName;
+      row.MRDS_MatchCount = String(matches.length);
+      const flag = matches.length > 1 ? "  <-- multiple matches, verify" : "";
+      log("[" + (i+1) + "/" + parsedRows.length + "] " + name + " -> " + m.siteName +
+          " (" + m.lat.toFixed(5) + ", " + m.lon.toFixed(5) + ")" + flag);
+    } else {
+      row.MRDS_Longitude = ""; row.MRDS_Latitude = ""; row.MRDS_DepID = "";
+      row.MRDS_MatchedName = ""; row.MRDS_MatchCount = "0";
+      log("[" + (i+1) + "/" + parsedRows.length + "] " + name + ": no MRDS match (tried: " + tried.join(", ") + ")");
+    }
+    await sleep(300);
+  }
+
+  const outFields = originalFields.concat(newFields);
+  const csvOut = Papa.unparse({ fields: outFields, data: parsedRows });
+
+  const found = parsedRows.filter(r => r.MRDS_Latitude).length;
+  const ambiguous = parsedRows.filter(r => r.MRDS_MatchCount && r.MRDS_MatchCount !== "0" && r.MRDS_MatchCount !== "1").length;
+  summaryEl.textContent = "Done. " + found + "/" + parsedRows.length + " localities got coordinates (" + ambiguous + " had multiple matches - check those by hand).";
+
+  const blob = new Blob([csvOut], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  downloadBtn.style.display = "block";
+  downloadBtn.onclick = () => {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "arkansas_quartz_localities_with_gps.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  fallbackText.value = csvOut;
+  fallbackEl.style.display = "block";
+
+  runBtn.disabled = false;
+  fileInput.disabled = false;
+});
+</script>
+
+</body>
+</html>
