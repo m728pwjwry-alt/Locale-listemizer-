@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Magnet Cove Parcel Ownership Lookup</title>
+<style>
+:root{--bg:#faf9f7;--fg:#1c1c1a;--mut:#6b6a66;--line:#e1e0d9;--card:#fff;--accent:#2a78d6}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#17171a;--fg:#eceae4;--mut:#9a9892;--line:#2c2c2a;--card:#1f1f22}}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,system-ui,sans-serif;max-width:760px;margin:0 auto;padding:16px;background:var(--bg);color:var(--fg)}
+h1{font-size:20px;margin:0 0 4px}
+p.sub{color:var(--mut);font-size:14px;margin:0 0 16px}
+button{width:100%;padding:14px;font-size:16px;border:0;border-radius:10px;background:var(--accent);color:#fff;margin-bottom:8px}
+button:disabled{background:#9aa3ad}
+#dl{background:#16a34a;display:none}
+#log{background:#0f0f10;color:#3ade7b;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;padding:10px;border-radius:8px;height:260px;overflow-y:auto;white-space:pre-wrap;margin-top:12px}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:14px}
+th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mut);font-weight:600}
+.wrap{overflow-x:auto}
+textarea{width:100%;height:140px;font-family:ui-monospace,monospace;font-size:11px;margin-top:10px}
+</style></head><body>
+<h1>Magnet Cove parcel ownership</h1>
+<p class="sub">Queries the Arkansas GIS Office statewide parcel layer for the current owner of record at each deposit, then builds a spreadsheet. Runs entirely in your browser.</p>
+<button id="run">Run ownership lookup</button>
+<button id="dl">Download spreadsheet (CSV)</button>
+<div id="log">Ready.</div>
+<div class="wrap"><table id="tbl"></table></div>
+<textarea id="fb" readonly style="display:none" onclick="this.select()"></textarea>
+<script>
+const SITES=[{"ID": 1, "Name": "Magnet Cove Titanium Corporation rutile deposit", "Area": "Magnet Cove", "Computed_Coordinates": "34.48501, -92.87767", "Coordinate_Source": "PLSS section center (approx +/-0.5 mi)", "Section": 18, "Township": "3S", "Range": "17W", "Legal_Description": "Sec 18 T.3S. R.17W.", "Status": "MINED 1931-1944 then abandoned", "Notes": "Only major rutile deposit known in the area; 5188 short tons of concentrate recovered; controlled by C.H. Scott of Denver in 1952; mill since dismantled; proved to 188 ft by drilling but only shallow weathered material worked"}, {"ID": 2, "Name": "Christy brookite deposit", "Area": "Magnet Cove", "Computed_Coordinates": "34.47957, -92.84907", "Coordinate_Source": "PLSS quarter center (approx +/-0.5 mi)", "Section": 16, "Township": "3S", "Range": "17W", "Legal_Description": "SW4 SW4 Sec 16 T.3S. R.17W.", "Status": "DRILLED AND SAMPLED, NEVER MINED", "Notes": "0.5 mi north of Magnet; owned by Malvern Lumber Co in 1952; proved to 130 ft by 21 drill holes plus 1944 test pits; report states no production has been recorded"}, {"ID": 3, "Name": "Kilpatrick brookite deposits (aka Hardy-Walsh)", "Area": "Magnet Cove", "Computed_Coordinates": "34.48501, -92.84261", "Coordinate_Source": "PLSS section center (approx +/-0.5 mi)", "Section": 16, "Township": "3S", "Range": "17W", "Legal_Description": "Secs 16 and 17 T.3S. R.17W.", "Status": "TESTED, NEVER MINED", "Notes": "1 mi north of Magnet; owned by the estate of William Kilpatrick in 1952; exploration only test pits and auger holes; no analysis of crystals or concentrate ever made"}, {"ID": 4, "Name": "Mo-Ti Corporation property", "Area": "Magnet Cove", "Computed_Coordinates": "34.48501, -92.86014", "Coordinate_Source": "PLSS section center (approx +/-0.5 mi)", "Section": 17, "Township": "3S", "Range": "17W", "Legal_Description": "Sec 17 T.3S. R.17W. (south bank of Cove Creek)", "Status": "ABANDONED - FLOODED", "Notes": "Prospect pit flooded by 1952; rutile-brookite-feldspar veins plus molybdenite cutting perovskite-bearing magnetite-pyroxene rock in drill core; none of this rock crops out at surface"}, {"ID": 5, "Name": "Kimsey calcite quarry area", "Area": "Magnet Cove", "Computed_Coordinates": "", "Coordinate_Source": "Descriptive location only", "Section": "", "Township": "", "Range": "", "Legal_Description": "West side of Cove Creek, north side of Highway 270", "Status": "ACTIVE FOR CALCITE - NIOBIUM NEVER PURSUED", "Notes": "Only good surface exposure of the niobium-bearing carbonatite at Magnet Cove; perovskite with up to 8.8% niobium in single crystals; average grade of the body only about 0.01% niobium"}, {"ID": 6, "Name": "West tufa hill", "Area": "Magnet Cove", "Computed_Coordinates": "", "Coordinate_Source": "Descriptive location only", "Section": "", "Township": "", "Range": "", "Legal_Description": "North of Kimsey quarry, west of Cove Creek", "Status": "INFERRED ONLY - NOT DRILLED", "Notes": "Power-auger hole hit only residual clay to surrounding grade; surface littered with iron-stained apatite-rich tufa boulders inferred to derive from underlying calcite rock"}, {"ID": 7, "Name": "Middle tufa hill", "Area": "Magnet Cove", "Computed_Coordinates": "", "Coordinate_Source": "Descriptive location only", "Section": "", "Township": "", "Range": "", "Legal_Description": "Between west and east tufa hills", "Status": "INFERRED ONLY - PARTIALLY DRILLED", "Notes": "Power auger struck rock at 20 ft and brought up apatite fragments; soil on the flat south of the hill contains abundant magnetite plus some apatite and perovskite"}, {"ID": 8, "Name": "East tufa hill", "Area": "Magnet Cove", "Computed_Coordinates": "", "Coordinate_Source": "Descriptive location only", "Section": "", "Township": "", "Range": "", "Legal_Description": "North of the church near Kimsey quarry", "Status": "INFERRED ONLY - NOT DRILLED", "Notes": "Power-auger hole penetrated 40 ft of clay without reaching bedrock (limit of available drill pipe); tufa float less abundant, mixed with bleached igneous rock boulders"}, {"ID": 9, "Name": "Perovskite hill", "Area": "Magnet Cove", "Computed_Coordinates": "", "Coordinate_Source": "Descriptive location only", "Section": "", "Township": "", "Range": "", "Legal_Description": "Field south of Highway 270, south of the calcite quarry", "Status": "NEVER DRILLED", "Notes": "Abundant perovskite visible in the soil; named in older reports; no subsurface exploration recorded in the 1954 bulletin"}, {"ID": 10, "Name": "Water well NW corner Sec 19", "Area": "Magnet Cove", "Computed_Coordinates": "34.47051, -92.87736", "Coordinate_Source": "PLSS section center (approx +/-0.5 mi)", "Section": 19, "Township": "3S", "Range": "17W", "Legal_Description": "NW corner Sec 19 T.3S. R.17W.", "Status": "NEVER FOLLOWED UP", "Notes": "A ~90-ft water well penetrated calcite rock; no outcrop nearby but rutile is locally abundant in the surrounding soil"}, {"ID": 11, "Name": "Unnamed perovskite locality east of the magnetite quarry", "Area": "Magnet Cove", "Computed_Coordinates": "", "Coordinate_Source": "Descriptive location only", "Section": "", "Township": "", "Range": "", "Legal_Description": "~1000 ft east of the magnetite quarry, north side of Highway 270", "Status": "NEVER DRILLED - QUANTITY UNKNOWN", "Notes": "Report states the quantity of perovskite-bearing rock in these localities is not known; paired with the Mo-Ti locality as the only two perovskite-in-silicate-rock occurrences"}, {"ID": 12, "Name": "Wilson prospect", "Area": "Potash Sulphur Springs (Garland Co, ~6 mi west)", "Computed_Coordinates": "", "Coordinate_Source": "Descriptive location only", "Section": "", "Township": "", "Range": "", "Legal_Description": "Hillside east of the hot springs above the Wilson residence", "Status": "MINIMALLY EXPLORED - FLAGGED FOR MORE WORK", "Notes": "Confirmed niobium AND uranium in a radioactive boulder (analyzed Dec 1950); only bulldozer trenches plus a single ~75-ft churn-drill hole; report concludes further work should include diamond drilling"}, {"ID": 13, "Name": "Brookite mineralization along Highway 270 at Magnet", "Area": "Magnet Cove", "Computed_Coordinates": "", "Coordinate_Source": "Descriptive location only", "Section": "", "Township": "", "Range": "", "Legal_Description": "Center of Magnet village at the Y in Highway 270", "Status": "SOURCE AREA - NOT A DISCRETE CLAIM", "Notes": "Source of the majority of described brookite specimens from Magnet Cove; quartz veins to 1 in thick with vugs of imperfect quartz and brookite crystals to 5mm; extends ~200 ft up the hill south of the highway"}, {"ID": 14, "Name": "Rutherford Brookite Prospect", "Area": "Magnet Cove", "Computed_Coordinates": "", "Coordinate_Source": "Descriptive location only", "Section": "", "Township": "", "Range": "", "Legal_Description": "Hill ~400 ft SE of Magnet community", "Status": "UNTESTED - SURFACE FLOAT ONLY", "Notes": "Elliptical float area 500 ft across centered on a house; smoky quartz in place near the SW corner of the house; compared to the Christy float pattern but smaller; no test pits or drilling ever done"}, {"ID": 15, "Name": "Richardson Rutile Prospect", "Area": "Magnet Cove", "Computed_Coordinates": "34.48863, -92.86460", "Coordinate_Source": "PLSS quarter center (approx +/-0.5 mi)", "Section": 17, "Township": "3S", "Range": "17W", "Legal_Description": "NW4 Sec 17 T.3S. R.17W.", "Status": "UNTESTED - VEINS NEVER FOLLOWED UP", "Notes": "Several separated rutile-feldspar veins exposed only along a farm road; plowed field said to be the source of many fine rutile specimens; also an abandoned Civil War-era pyrite shaft with rutile vein material on its dump"}, {"ID": 16, "Name": "York Rutile Prospect", "Area": "Magnet Cove", "Computed_Coordinates": "34.47051, -92.85984", "Coordinate_Source": "PLSS section center (approx +/-0.5 mi)", "Section": 20, "Township": "3S", "Range": "17W", "Legal_Description": "Near center Sec 20 T.3S. R.17W.", "Status": "UNTESTED - NO RUTILE FOUND IN PLACE", "Notes": "Residual rutile aggregates to 1 in common in soil through a farmyard and plowed field; source vein never located; nepheline garnet syenite in the ridge just east is the suspected source"}, {"ID": 17, "Name": "Brookite prospects Section 7 - trenched", "Area": "Magnet Cove", "Computed_Coordinates": "34.49950, -92.87798", "Coordinate_Source": "PLSS section center (approx +/-0.5 mi)", "Section": 7, "Township": "3S", "Range": "17W", "Legal_Description": "Southern part Sec 7 T.3S. R.17W.", "Status": "PARTIALLY TESTED - OLD CAVED TRENCHES", "Notes": "Four now-caved trenches along a low hill's north slope exposed brookite-bearing feldspar veins in metamorphosed Stanley shale"}, {"ID": 18, "Name": "Brookite prospects Section 7 - untested", "Area": "Magnet Cove", "Computed_Coordinates": "34.49950, -92.87798", "Coordinate_Source": "PLSS section center (approx +/-0.5 mi)", "Section": 7, "Township": "3S", "Range": "17W", "Legal_Description": "SW quarter Sec 7 T.3S. R.17W.", "Status": "COMPLETELY UNTESTED", "Notes": "Brookite-quartz float over a 20x200 ft area on a ravine slope; report states so far as is known no exploration has been undertaken at this locality"}, {"ID": 19, "Name": "Nichols and Campbell Rutile Prospect", "Area": "Magnet Cove", "Computed_Coordinates": "34.47957, -92.88413", "Coordinate_Source": "PLSS quarter center (approx +/-0.5 mi)", "Section": 18, "Township": "3S", "Range": "17W", "Legal_Description": "SW4 SW4 Sec 18 T.3S. R.17W.", "Status": "SMALL HISTORIC PRODUCTION - TRENCHES OPEN", "Notes": "Produced a small amount of rutile historically; a ~700-ft trench plus gullies still expose rutile-bearing material in the dump; deepest SE end shows rutile masses to 1.5 in"}, {"ID": 20, "Name": "Rutile veins in Section 24", "Area": "Magnet Cove", "Computed_Coordinates": "34.47414, -92.89058", "Coordinate_Source": "PLSS quarter center (approx +/-0.5 mi)", "Section": 24, "Township": "3S", "Range": "18W", "Legal_Description": "NE4 Sec 24 T.3S. R.18W.", "Status": "MINOR - LOW GRADE", "Notes": "Feldspar-carbonate veins with fine-grained rutile in a road cut near the Jones Mill aluminum plant road; quantity negligible but demonstrates how widespread the mineralization is"}, {"ID": 21, "Name": "McKnight Placer Rutile Deposit", "Area": "~3 mi south of Magnet Cove", "Computed_Coordinates": "34.42341, -92.86322", "Coordinate_Source": "PLSS quarter center (approx +/-0.5 mi)", "Section": 5, "Township": "4S", "Range": "17W", "Legal_Description": "S2 SW4 Sec 5 T.4S. R.17W.", "Status": "ABANDONED PLACER PIT", "Notes": "Believed sourced from erosion of the main Cove deposits; rutile pebbles to 1 in in a clayey gravel mantle 10-20 ft thick; H.R. McKnight's open pit plus shallow test pits abandoned"}];
+const URL="https://gis.arkansas.gov/arcgis/rest/services/FEATURESERVICES/Planning_Cadastre/FeatureServer/6/query";
+const OUT="parcelid,ownername,parcellgl,str,section,township,range,county,landvalue,totalvalue,taxarea,adrlabel,adrcity,camadate";
+const log=m=>{const l=document.getElementById("log");l.textContent+=m+"\n";l.scrollTop=l.scrollHeight};
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+async function atPoint(lat,lon){
+  const p=new URLSearchParams({geometry:lon+","+lat,geometryType:"esriGeometryPoint",inSR:"4326",
+    spatialRel:"esriSpatialRelIntersects",outFields:OUT,returnGeometry:"false",outSR:"4326",f:"json"});
+  const r=await fetch(URL+"?"+p); const d=await r.json();
+  if(d.error) throw new Error(JSON.stringify(d.error));
+  return (d.features||[]).map(f=>f.attributes);
+}
+async function nearPoint(lat,lon,meters){
+  const p=new URLSearchParams({geometry:lon+","+lat,geometryType:"esriGeometryPoint",inSR:"4326",
+    distance:String(meters),units:"esriSRUnit_Meter",spatialRel:"esriSpatialRelIntersects",
+    outFields:OUT,returnGeometry:"false",outSR:"4326",f:"json"});
+  const r=await fetch(URL+"?"+p); const d=await r.json();
+  if(d.error) throw new Error(JSON.stringify(d.error));
+  return (d.features||[]).map(f=>f.attributes);
+}
+const F=(a,k)=>{const v=a[k];return v===null||v===undefined?"":String(v)};
+let results=[];
+
+document.getElementById("run").onclick=async()=>{
+  const b=document.getElementById("run"); b.disabled=true;
+  document.getElementById("log").textContent=""; results=[];
+  const withCoords=SITES.filter(s=>s.Computed_Coordinates);
+  log("Looking up "+withCoords.length+" sites with coordinates ("+(SITES.length-withCoords.length)+" have descriptive locations only).\n");
+  for(let i=0;i<SITES.length;i++){
+    const s=SITES[i];
+    if(!s.Computed_Coordinates){
+      results.push({site:s.Name,legal:s.Legal_Description,status:s.Status,coords:"",
+        match:"no coordinate - descriptive location only",owner:"",parcel:"",lgl:"",land:"",total:"",acres:"",addr:"",cama:""});
+      log("["+(i+1)+"/"+SITES.length+"] "+s.Name+" - skipped, no coordinate"); continue;
+    }
+    const [lat,lon]=s.Computed_Coordinates.split(",").map(x=>parseFloat(x));
+    let recs=[],how="point-in-parcel";
+    try{ recs=await atPoint(lat,lon); }
+    catch(e){ log("   ERROR "+e.message); }
+    if(!recs.length){
+      how="nearest within 800m";
+      try{ recs=await nearPoint(lat,lon,800); }catch(e){}
+    }
+    if(!recs.length){
+      results.push({site:s.Name,legal:s.Legal_Description,status:s.Status,coords:s.Computed_Coordinates,
+        match:"no parcel found",owner:"",parcel:"",lgl:"",land:"",total:"",acres:"",addr:"",cama:""});
+      log("["+(i+1)+"/"+SITES.length+"] "+s.Name+" -> no parcel found");
+    } else {
+      recs.slice(0,6).forEach((a,k)=>{
+        results.push({site:s.Name+(k?" (adjacent "+k+")":""),legal:s.Legal_Description,status:s.Status,
+          coords:s.Computed_Coordinates,match:how+(recs.length>1?" ("+recs.length+" parcels)":""),
+          owner:F(a,"ownername"),parcel:F(a,"parcelid"),lgl:F(a,"parcellgl")||F(a,"str"),
+          land:F(a,"landvalue"),total:F(a,"totalvalue"),acres:F(a,"taxarea"),
+          addr:(F(a,"adrlabel")+" "+F(a,"adrcity")).trim(),
+          cama:F(a,"camadate")?new Date(Number(F(a,"camadate"))).toISOString().slice(0,10):""});
+      });
+      log("["+(i+1)+"/"+SITES.length+"] "+s.Name+" -> "+F(recs[0],"ownername")+"  ["+how+"]");
+    }
+    await sleep(350);
+  }
+  render(); makeCsv(); b.disabled=false;
+  log("\nDone. "+results.filter(r=>r.owner).length+" parcel records found.");
+};
+
+function render(){
+  const t=document.getElementById("tbl");
+  t.innerHTML="<tr><th>Site</th><th>Owner of record</th><th>Parcel</th><th>Acres</th></tr>"+
+    results.map(r=>"<tr><td>"+r.site+"</td><td>"+(r.owner||"<i>"+r.match+"</i>")+"</td><td>"+r.parcel+"</td><td>"+r.acres+"</td></tr>").join("");
+}
+function makeCsv(){
+  const cols=["site","legal","status","coords","match","owner","parcel","lgl","acres","land","total","addr","cama"];
+  const head=["Deposit","Legal description (1949-54 report)","Development status","Coordinates","Match method","Owner of record","Parcel ID","Parcel legal","Acres","Land value","Total value","Owner address","County data date"];
+  const esc=v=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
+  const csv=[head.map(esc).join(",")].concat(results.map(r=>cols.map(c=>esc(r[c])).join(","))).join("\n");
+  const blob=new Blob([csv],{type:"text/csv"});
+  const u=URL_OBJ(blob);
+  const d=document.getElementById("dl"); d.style.display="block";
+  d.onclick=()=>{const a=document.createElement("a");a.href=u;a.download="magnet_cove_ownership.csv";document.body.appendChild(a);a.click();a.remove()};
+  const fb=document.getElementById("fb"); fb.style.display="block"; fb.value=csv;
+}
+function URL_OBJ(b){return window.URL.createObjectURL(b)}
+</script></body></html>
